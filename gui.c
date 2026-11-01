@@ -34,6 +34,7 @@
 #define APP_CLASS   L"BWBacklightPanelV3"
 #define APP_TITLE   L"黑寡妇背光控制"
 #define MUTEX_NAME  L"Local\\BWBacklightPanel_9C3F2A7E_V3"
+#define APP_ICON_ID 1   /* app.rc 里的图标组 ID；没有资源时退回系统图标 */
 
 /* --------------------------- 布局（96 DPI 逻辑像素） ---------------------- */
 #define WIN_W       440
@@ -1688,7 +1689,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     wc.hCursor       = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     wc.lpszClassName = APP_CLASS;
-    wc.hIcon         = LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
+    wc.hIcon         = LoadIconW(inst, MAKEINTRESOURCEW(APP_ICON_ID));
+    if (wc.hIcon == NULL) wc.hIcon = LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
     wc.hIconSm       = wc.hIcon;
     if (!RegisterClassExW(&wc)) {
         CloseHandle(mutex);

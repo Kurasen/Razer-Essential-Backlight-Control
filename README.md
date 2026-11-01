@@ -61,10 +61,28 @@ make gui
 等价于：
 
 ```sh
-gcc gui.c -lhidapi -lgdi32 -luser32 -ladvapi32 -lmsimg32 -mwindows -o BWBacklight.exe
+windres app.rc -o app_res.o
+gcc gui.c app_res.o -lhidapi -lgdi32 -luser32 -ladvapi32 -lmsimg32 -mwindows -o BWBacklight.exe
 ```
 
 需要和 main.c 相同的环境（MSYS2 x64 + hidapi）。`-mwindows` 表示不弹控制台窗口，`-lmsimg32` 是窗口渐变用的。
+
+### 应用图标
+
+exe 的图标来自 [razer.png](razer.png)：
+
+- [app.ico](app.ico) 是 16 / 24 / 32 / 48 / 64 / 128 / 256 七个尺寸的多尺寸图标（小尺寸是 32bpp DIB，64 以上是 PNG 帧）。
+- [app.rc](app.rc) 把它编成图标组 ID `1`，`windres` 生成 `app_res.o` 一起链接，这个组就是资源管理器里显示的 exe 文件图标。
+- 窗口和任务栏图标走同一个 ID：`gui.c` 里 `LoadIconW(inst, MAKEINTRESOURCEW(APP_ICON_ID))`，取不到时退回系统默认图标。
+
+改图标：替换 [razer.png](razer.png)，重新生成 [app.ico](app.ico)，再 `make gui`：
+
+```sh
+pwsh tools\make-ico.ps1        # razer.png -> app.ico（7 个尺寸，输出是确定的）
+make gui
+```
+
+仓库里现在这份 [BWBacklight.exe](BWBacklight.exe) 已经带上了图标资源（文件图标立即生效）；但窗口和任务栏图标是 `gui.c` 里 `LoadIconW(...)` 取到的，必须用新版 `gui.c` 重新编译才会换成雷蛇图标，不重新编译就仍是系统默认窗口图标。[BWBacklight.exe.bak](BWBacklight.exe.bak) 是修改前的原文件，需要回退时直接覆盖回去。
 
 注意 dll 依赖：
 
