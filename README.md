@@ -1,5 +1,26 @@
 This program is for the Razer BlackWidow Essential keyboard. It uses the hidapi to change the rgb from breathing to static without the use of Razer Synapse. This program is made on Mysys2 x64. Make sure you have hidapi installed before running make
 
+## 上游与二次开发
+
+本项目是 [Tommy-Sand/BWEssential-Static-Backlight](https://github.com/Tommy-Sand/BWEssential-Static-Backlight) 的二次开发分支。
+
+上游仓库（2022 年，commit `05278ff`）：用 `hidapi` 在命令行把 BlackWidow Essential 的背光从默认呼吸切到常亮，源码是 `main.c` / `main.h` / `makefile`，无界面、无状态持久化。本仓库保留了上游的核心成果——设备枚举方式和 Razer `0x0F` 类报文（set/get effect、亮度、91 字节 XOR 校验）——并在此之上重写了交互层。
+
+### 相对上游的变化
+
+| 层面 | 上游 | 本仓库 |
+| --- | --- | --- |
+| 交互方式 | 命令行，跑一次切一次 | 深色圆角图形界面，点选即生效 |
+| 灯光模式 | 仅「关 / 常亮」切换 | 关 / 常亮 / 呼吸灯三态，启动时读回键盘真实状态 |
+| 状态持久 | 无，重启后恢复原厂呼吸 | 开机自启（`HKCU\…\Run` + `--silent`），定时与开关状态存注册表 |
+| 睡眠模式 | 无 | 一键关灯锁定 + 24 小时制定时入睡（支持每天重复） |
+| 运行约束 | 可多开 | 单实例互斥，后启动的窗口只把前台实例唤到最前 |
+| 编译产物 | `main.exe` | `BWBacklight.exe`（`-mwindows` 无控制台，4 倍 DIB 超采样渲染） |
+
+协议层细节（报文结构、校验算法、`Fn+F12` 亮度前置）均来自上游的实现与实测，本仓库未改动其语义，仅扩展了命令的调用时机与状态机。
+
+上游许可证随原仓库继承；本仓库新增的 GUI 代码以同许可证发布，详见 [LICENSE](LICENSE)（若尚未添加，请补上上游的许可证文件）。
+
 ## 图形界面版（gui.c / BWBacklight.exe）
 
 深色无边框窗口，圆角，三颗胶囊灯光按钮 + 睡眠模式 + 睡眠定时：
