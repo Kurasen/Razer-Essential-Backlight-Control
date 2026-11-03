@@ -5,7 +5,7 @@ main: main.c main.h
 
 gui: gui.c main.h app.rc app.ico
 	windres app.rc -o app_res.o
-	gcc gui.c app_res.o -lhidapi -lgdi32 -luser32 -ladvapi32 -lmsimg32 -mwindows -o BWBacklight.exe
+	gcc gui.c app_res.o -lhidapi -lgdi32 -luser32 -ladvapi32 -lshell32 -lmsimg32 -mwindows -o BWBacklight.exe
 
 all: main gui
 
