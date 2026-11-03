@@ -1613,6 +1613,21 @@ static int create_backbuffer(HWND hwnd)
     return 1;
 }
 
+static void sync_client_size(HWND hwnd)
+{
+    RECT rc;
+
+    GetClientRect(hwnd, &rc);
+    g_client_w = rc.right;
+    g_client_h = rc.bottom;
+}
+
+/* 隐藏到托盘后把工作集还给系统，下次显示时按需换回 */
+static void trim_memory(void)
+{
+    SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+}
+
 static void update_region(HWND hwnd)
 {
     HRGN rgn;
@@ -1656,7 +1671,6 @@ static void resize_to(HWND hwnd, int logical_h)
     g_client_w = wr.right;
     g_client_h = wr.bottom;
     destroy_backbuffer();
-    create_backbuffer(hwnd);
     update_region(hwnd);
     g_hover = HIT_NONE;
     g_press = HIT_NONE;
@@ -1938,6 +1952,10 @@ static void paint(HWND hwnd)
     int y = pr.top;
     int w, h;
 
+    /* 后台期间缓冲已释放，真正需要绘制时再按当前客户区重建 */
+    if (g_memdc == NULL && IsWindowVisible(hwnd) && !IsIconic(hwnd))
+        create_backbuffer(hwnd);
+
     if (x < 0) x = 0;
     if (y < 0) y = 0;
     w = pr.right - x;
@@ -1969,7 +1987,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     switch (msg) {
     case WM_CREATE:
         g_hwnd = hwnd;
-        create_backbuffer(hwnd);
+        sync_client_size(hwnd);
 
         g_font_title   = make_font(15, FW_SEMIBOLD);
         g_font_sub     = make_font(8,  FW_NORMAL);
@@ -2169,7 +2187,20 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
 
     case WM_SHOWWINDOW:
-        if (wp) tray_remove();
+        if (wp) {
+            tray_remove();
+        } else {
+            /* 托盘/最小化期间只需要定时器，渲染缓冲和工作集都可以先还回去 */
+            destroy_backbuffer();
+            trim_memory();
+        }
+        return 0;
+
+    case WM_SIZE:
+        if (wp == SIZE_MINIMIZED) {
+            destroy_backbuffer();
+            trim_memory();
+        }
         return 0;
 
     case WM_CLOSE:
@@ -2297,6 +2328,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             g_autostart_tries = 0;
             SetTimer(hwnd, IDT_AUTOSTART, 1000, NULL);
         }
+        if (!IsWindowVisible(hwnd)) trim_memory();
     } else {
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
