@@ -27,6 +27,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <wchar.h>
 #include <string.h>
 #include <time.h>
 
@@ -111,7 +112,9 @@
 #define SS          2
 
 /* --------------------------- 定时器 --------------------------------------- */
-#define IDT_CHECK   1
+#define IDT_CHECK       1
+#define IDT_AUTOSTART   2
+#define AUTOSTART_TRIES 20   /* 登录后键盘未就绪时，最多每秒重试 20 次 */
 #define CONF_KEY    L"Software\\BWEssentialBacklight"
 #define TIMER_NEXT  L"SleepTimerNext"
 #define TIMER_DAILY L"SleepTimerDaily"
@@ -256,6 +259,7 @@ static RECT   g_drag_window;
 
 static wchar_t g_status[160] = L"就绪";
 static int     g_status_err = 0;
+static int     g_autostart_tries = 0;
 
 /* --------------------------- 前向声明 ------------------------------------- */
 static void resize_for_timer(HWND hwnd, int open);
@@ -738,6 +742,8 @@ static int read_light(void)
 }
 
 /* --------------------------- 开机自启 ------------------------------------- */
+#define RUN_ARG L"--autostart"
+
 static int auto_query(void)
 {
     wchar_t buf[2 * MAX_PATH];
@@ -766,7 +772,7 @@ static int auto_set(int on)
 
     if (on) {
         GetModuleFileNameW(NULL, path, 2 * MAX_PATH);
-        wsprintfW(cmd, L"\"%s\" --silent", path);
+        wsprintfW(cmd, L"\"%s\" " RUN_ARG, path);
         r = RegSetValueExW(key, RUN_VAL, 0, REG_SZ,
                            (const BYTE *)cmd,
                            (DWORD)((lstrlenW(cmd) + 1) * sizeof(wchar_t)));
@@ -777,6 +783,28 @@ static int auto_set(int on)
 
     RegCloseKey(key);
     return (r == ERROR_SUCCESS);
+}
+
+/* 旧版本写的是 --silent（只发一次报文就退出），启动时顺手迁移成 --autostart */
+static void auto_sync_command(void)
+{
+    wchar_t buf[2 * MAX_PATH];
+    DWORD   cb = sizeof(buf);
+    HKEY    key;
+    int     need_sync = 0;
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0,
+                      KEY_QUERY_VALUE, &key) != ERROR_SUCCESS)
+        return;
+
+    if (RegQueryValueExW(key, RUN_VAL, NULL, NULL, (LPBYTE)buf, &cb) ==
+            ERROR_SUCCESS && cb >= sizeof(wchar_t) && cb <= sizeof(buf)) {
+        buf[cb / sizeof(wchar_t) - 1] = 0;
+        need_sync = (wcsstr(buf, RUN_ARG) == NULL);
+    }
+
+    RegCloseKey(key);
+    if (need_sync) auto_set(1);
 }
 
 /* --------------------------- 定时持久化 ----------------------------------- */
@@ -1975,6 +2003,17 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == IDT_CHECK && g_timer_on && g_next_fire > 0 &&
             time(NULL) >= g_next_fire) {
             timer_fired();
+        } else if (wp == IDT_AUTOSTART) {
+            if (send_light(LIGHT_ON)) {
+                KillTimer(hwnd, IDT_AUTOSTART);
+                g_autostart_tries = 0;
+                g_light = LIGHT_ON;
+                set_status(L"已切换为常亮", 0);
+            } else if (++g_autostart_tries >= AUTOSTART_TRIES) {
+                KillTimer(hwnd, IDT_AUTOSTART);
+                g_autostart_tries = 0;
+                set_status(L"未找到键盘，请检查连接", 1);
+            }
         }
         return 0;
 
@@ -2173,22 +2212,28 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     HDC screen;
     RECT work;
     int silent;
+    int autostart;
     int w, h, x, y;
 
     (void)prev;
     (void)show;
 
     silent = (cmdline != NULL && strstr(cmdline, "--silent") != NULL);
+    autostart = (cmdline != NULL && strstr(cmdline, "--autostart") != NULL);
+    if (autostart) silent = 0;
 
     SetLastError(0);
     mutex = CreateMutexW(NULL, FALSE, MUTEX_NAME);
     if (mutex == NULL) return 1;
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (!silent) activate_existing();
+        /* 登录自启时已有实例在跑：安静退出，不抢前台 */
+        if (!silent && !autostart) activate_existing();
         CloseHandle(mutex);
         return 0;
     }
+
+    auto_sync_command();
 
     if (silent) {
         send_light(LIGHT_ON);
@@ -2237,9 +2282,26 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         return 1;
     }
 
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
-    SetForegroundWindow(hwnd);
+    if (autostart) {
+        /* 登录启动：不弹窗口，直接进托盘，并把背光切到常亮 */
+        tray_add();
+        if (!g_tray_added) {
+            /* 托盘图标没加上时宁可显示窗口，也不要留下一个看不见的进程 */
+            ShowWindow(hwnd, SW_SHOW);
+            UpdateWindow(hwnd);
+        }
+        if (send_light(LIGHT_ON)) {
+            g_light = LIGHT_ON;
+            set_status(L"已切换为常亮", 0);
+        } else {
+            g_autostart_tries = 0;
+            SetTimer(hwnd, IDT_AUTOSTART, 1000, NULL);
+        }
+    } else {
+        ShowWindow(hwnd, SW_SHOW);
+        UpdateWindow(hwnd);
+        SetForegroundWindow(hwnd);
+    }
 
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
